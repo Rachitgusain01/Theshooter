@@ -1,51 +1,361 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Shooting Game</title>
-    <style>
-        /* Styles for the tactical HUD aesthetic */
-        body { background: url('grid-background.png'); }
-        /* Additional CSS styles */
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voxel Engine FINAL</title>
+<style>
+body{margin:0;overflow:hidden;background:#000;}
+canvas{display:block;}
+
+/* HUD */
+#hud{
+  position:absolute;
+  top:10px;
+  left:10px;
+  color:white;
+  font-family:monospace;
+}
+
+/* INVENTORY */
+#inv{
+  position:absolute;
+  bottom:10px;
+  left:10px;
+  display:grid;
+  grid-template-columns:repeat(8,40px);
+  gap:4px;
+}
+
+.slot{
+  width:40px;height:40px;
+  background:#222;
+  border:2px solid #555;
+  color:white;
+  font-size:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+/* JOYSTICK */
+#joyBase{
+  position:absolute;
+  bottom:80px;
+  left:60px;
+  width:120px;
+  height:120px;
+  border-radius:50%;
+  background:rgba(255,255,255,0.1);
+}
+#joy{
+  width:50px;height:50px;
+  border-radius:50%;
+  background:rgba(255,255,255,0.4);
+  position:absolute;
+  left:35px;top:35px;
+}
+
+/* ACTION */
+#btn{
+  position:absolute;
+  bottom:90px;
+  right:60px;
+  width:80px;
+  height:80px;
+  border-radius:50%;
+  background:red;
+  color:white;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+</style>
 </head>
 <body>
-    <div id="hud">
-        <!-- HUD elements like health and ammo status -->
-    </div>
-    <canvas id="gameCanvas"></canvas>
-    <script>
-        // JavaScript code for the 3D shooting game
 
-        // Game Initialization
-        function initGame() {
-            // Set up canvas for 2D context
-            const canvas = document.getElementById('gameCanvas');
-            const ctx = canvas.getContext('2d');
-            // Initialize game variables
+<div id="hud">VOXEL ENGINE FINAL</div>
+<div id="inv"></div>
+<div id="joyBase"><div id="joy"></div></div>
+<div id="btn">BREAK</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
+<script>
+/* =========================
+   ENGINE SETUP
+========================= */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+
+const camera = new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,2000);
+camera.position.set(0,10,0);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
+
+/* LIGHT */
+const sun = new THREE.DirectionalLight(0xffffff,1);
+sun.position.set(50,100,50);
+scene.add(sun);
+
+const ambient = new THREE.AmbientLight(0x404040,0.5);
+scene.add(ambient);
+
+/* =========================
+   BLOCKS
+========================= */
+const SIZE = 16;
+const CHUNKS = new Map();
+
+const BLOCK = {
+  AIR:0,
+  GRASS:1,
+  DIRT:2,
+  STONE:3,
+  TORCH:4
+};
+
+const colors = {
+  1:0x2ecc71,
+  2:0x8b4513,
+  3:0x777777,
+  4:0xffaa00
+};
+
+/* =========================
+   NOISE WORLD
+========================= */
+function noise(x,z){
+  return Math.sin(x*12.9898+z*78.233)*43758.5453%1;
+}
+
+/* =========================
+   GENERATE CHUNK DATA
+========================= */
+function genChunk(cx,cz){
+  let data = [];
+
+  for(let x=0;x<SIZE;x++){
+    for(let z=0;z<SIZE;z++){
+
+      let wx = cx*SIZE+x;
+      let wz = cz*SIZE+z;
+
+      let h = Math.floor(noise(wx,wz)*6+5);
+
+      for(let y=0;y<SIZE;y++){
+        let id = BLOCK.AIR;
+
+        if(y<h){
+          id = y===h-1?BLOCK.GRASS:BLOCK.DIRT;
+          if(y<h-4) id = BLOCK.STONE;
         }
 
-        // Mobile controls setup
-        function setupMobileControls() {
-            // Create touch controls with dual joysticks and fire button
+        // caves
+        if(noise(wx,y,wz)>0.78) id = BLOCK.AIR;
+
+        data.push(id);
+      }
+    }
+  }
+
+  return data;
+}
+
+/* =========================
+   GPU INSTANCED RENDERER
+========================= */
+const geometry = new THREE.BoxGeometry(1,1,1);
+const material = new THREE.MeshStandardMaterial();
+
+const instanced = new THREE.InstancedMesh(geometry,material,50000);
+scene.add(instanced);
+
+let dummy = new THREE.Object3D();
+
+/* =========================
+   BUILD INSTANCES
+========================= */
+function buildInstances(){
+  let i = 0;
+
+  CHUNKS.forEach((chunk,key)=>{
+
+    let [cx,cz] = key.split(",").map(Number);
+    let data = chunk.data;
+
+    let index = 0;
+
+    for(let x=0;x<SIZE;x++){
+      for(let z=0;z<SIZE;z++){
+        for(let y=0;y<SIZE;y++){
+
+          let id = data[index++];
+          if(id===0) continue;
+
+          dummy.position.set(
+            cx*SIZE+x,
+            y,
+            cz*SIZE+z
+          );
+
+          dummy.updateMatrix();
+          instanced.setMatrixAt(i,dummy.matrix);
+          i++;
         }
+      }
+    }
+  });
 
-        // User controls setup
-        window.addEventListener('keydown', (event) => {
-            // Handle keyboard and mouse controls
-        });
+  instanced.count = i;
+  instanced.instanceMatrix.needsUpdate = true;
+}
 
-        // Main game loop
-        function gameLoop() {
-            // Update game state and render each frame
-            requestAnimationFrame(gameLoop);
-        }
+/* =========================
+   CHUNK STREAMING
+========================= */
+function loadChunk(cx,cz){
+  let key = cx+","+cz;
+  if(CHUNKS.has(key)) return;
 
-        // Start the game
-        initGame();
-        setupMobileControls();
-        gameLoop();
-    </script>
+  CHUNKS.set(key,{
+    data: genChunk(cx,cz)
+  });
+}
+
+/* =========================
+   INVENTORY UI (DRAG DROP)
+========================= */
+let inv = document.getElementById("inv");
+let items = ["grass","dirt","stone","torch"];
+
+let selected = 0;
+
+items.forEach((it,i)=>{
+  let s=document.createElement("div");
+  s.className="slot";
+  s.innerText=it;
+
+  s.onclick=()=>selected=i;
+
+  inv.appendChild(s);
+});
+
+/* =========================
+   JOYSTICK
+========================= */
+let joy = {x:0,y:0};
+
+let base = document.getElementById("joyBase");
+let stick = document.getElementById("joy");
+
+base.ontouchmove=e=>{
+  let t=e.touches[0];
+  let r=base.getBoundingClientRect();
+
+  let dx=t.clientX-(r.left+60);
+  let dy=t.clientY-(r.top+60);
+
+  let d=Math.min(40,Math.hypot(dx,dy));
+  let a=Math.atan2(dy,dx);
+
+  joy.x=Math.cos(a)*(d/40);
+  joy.y=Math.sin(a)*(d/40);
+
+  stick.style.transform=`translate(${joy.x*40}px,${joy.y*40}px)`;
+};
+
+base.ontouchend=()=>{
+  joy.x=joy.y=0;
+  stick.style.transform="translate(0px,0px)";
+};
+
+/* =========================
+   BLOCK BREAK SYSTEM
+========================= */
+let ray = new THREE.Raycaster();
+
+function breakBlock(){
+  ray.setFromCamera(new THREE.Vector2(0,0),camera);
+  let hit = ray.intersectObject(instanced);
+
+  if(hit.length){
+    let i = hit[0].instanceId;
+    instanced.setMatrixAt(i,new THREE.Matrix4().makeScale(0,0,0));
+    instanced.instanceMatrix.needsUpdate=true;
+  }
+}
+
+/* =========================
+   REDSTONE SYSTEM (SIMPLIFIED)
+========================= */
+let redstone = new Map();
+
+function updateRedstone(){
+  redstone.forEach((v,k)=>{
+    if(v>0){
+      redstone.set(k,v-1);
+    }
+  });
+}
+
+/* =========================
+   SAVE / LOAD WORLD
+========================= */
+function saveWorld(){
+  let out = [];
+
+  CHUNKS.forEach((c,k)=>{
+    out.push({k,data:c.data});
+  });
+
+  let blob = new Blob([JSON.stringify(out)],{type:"application/json"});
+  let a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "world.json";
+  a.click();
+}
+
+function loadWorld(json){
+  let data = JSON.parse(json);
+  data.forEach(d=>CHUNKS.set(d.k,d));
+}
+
+/* =========================
+   GAME LOOP
+========================= */
+function animate(){
+  requestAnimationFrame(animate);
+
+  let cx = Math.floor(camera.position.x/SIZE);
+  let cz = Math.floor(camera.position.z/SIZE);
+
+  for(let x=-2;x<=2;x++){
+    for(let z=-2;z<=2;z++){
+      loadChunk(cx+x,cz+z);
+    }
+  }
+
+  buildInstances();
+  updateRedstone();
+
+  camera.position.x += joy.x*0.3;
+  camera.position.z += joy.y*0.3;
+
+  renderer.render(scene,camera);
+}
+animate();
+
+document.getElementById("btn").ontouchstart=breakBlock;
+
+addEventListener("resize",()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+
 </body>
 </html>
