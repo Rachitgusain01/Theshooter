@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>FPS FULL RESTORED</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html,body{margin:0;overflow:hidden;background:#000;touch-action:none}
+
+/* UI */
+#ui{
+position:absolute;width:100%;height:100%;
+display:flex;justify-content:center;align-items:center;
+background:rgba(0,0,0,0.8);color:white;flex-direction:column;
+z-index:10;
+}
+
+#hud{
+position:absolute;top:10px;left:10px;color:white;font-family:Arial;
+z-index:5;
+}
+
+#crosshair{
+position:absolute;left:50%;top:50%;
+width:8px;height:8px;border:2px solid white;
+border-radius:50%;
+transform:translate(-50%,-50%);
+z-index:5;
+}
+
+/* MOBILE CONTROLS */
+#joyBase{
+position:absolute;left:40px;bottom:80px;
+width:120px;height:120px;border-radius:50%;
+background:rgba(255,255,255,0.15);
+}
+
+#joyStick{
+position:absolute;left:35px;top:35px;
+width:50px;height:50px;border-radius:50%;
+background:rgba(255,255,255,0.6);
+}
+
+#shootBtn,#reloadBtn{
+position:absolute;right:40px;
+width:90px;height:70px;
+background:rgba(255,255,255,0.2);
+color:white;
+display:flex;justify-content:center;align-items:center;
+font-family:Arial;
+}
+
+#shootBtn{bottom:120px;}
+#reloadBtn{bottom:210px;}
+</style>
+</head>
+
+<body>
+
+<div id="ui">
+<h1>FPS FULL MOBILE + PC</h1>
+<button onclick="start()">PLAY</button>
+</div>
+
+<div id="crosshair"></div>
+
+<div id="hud">
+HP: <span id="hp">100</span>
+</div>
+
+<!-- MOBILE UI -->
+<div id="joyBase"><div id="joyStick"></div></div>
+<div id="shootBtn">FIRE</div>
+<div id="reloadBtn">RELOAD</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+
+<script>
+let scene,camera,renderer,canvas,player;
+
+let velocity=new THREE.Vector3();
+let keys={};
+
+let yaw=0,pitch=0;
+let sens=0.002;
+
+let isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+
+// MOBILE JOYSTICK
+let joyX=0,joyY=0;
+let joyTX=0,joyTY=0;
+
+// ENEMIES / WALLS
+let enemies=[];
+let walls=[];
+
+// ---------------- INIT ----------------
+function init(){
+
+scene=new THREE.Scene();
+scene.background=new THREE.Color(0x87ceeb);
+
+camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
+
+renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
+
+canvas=renderer.domElement;
+
+// player
+player=new THREE.Object3D();
+player.position.y=2;
+scene.add(player);
+camera.position.set(0,2,0);
+player.add(camera);
+
+// ground
+let g=new THREE.Mesh(
+new THREE.PlaneGeometry(100,100),
+new THREE.MeshBasicMaterial({color:0x228B22})
+);
+g.rotation.x=-Math.PI/2;
+scene.add(g);
+
+// walls
+for(let i=0;i<8;i++){
+let w=new THREE.Mesh(
+new THREE.BoxGeometry(3,3,3),
+new THREE.MeshBasicMaterial({color:0x555555})
+);
+w.position.set(Math.random()*20-10,1.5,Math.random()*20-10);
+w.hp=100;
+scene.add(w);
+walls.push(w);
+}
+
+// enemies
+for(let i=0;i<4;i++){
+let e=new THREE.Mesh(
+new THREE.BoxGeometry(1.5,2,1.5),
+new THREE.MeshBasicMaterial({color:0xff4444})
+);
+e.position.set(Math.random()*15-7,1,Math.random()*15-7);
+e.hp=100;
+scene.add(e);
+enemies.push(e);
+}
+
+animate();
+}
+
+// ---------------- MOVE ----------------
+function move(){
+
+let forward=new THREE.Vector3(0,0,-1).applyEuler(player.rotation);
+let right=new THREE.Vector3(1,0,0).applyEuler(player.rotation);
+
+let speed=0.08;
+
+// PC
+if(!isMobile){
+if(keys["KeyW"]) velocity.add(forward.clone().multiplyScalar(speed));
+if(keys["KeyS"]) velocity.add(forward.clone().multiplyScalar(-speed));
+if(keys["KeyA"]) velocity.add(right.clone().multiplyScalar(-speed));
+if(keys["KeyD"]) velocity.add(right.clone().multiplyScalar(speed));
+if(keys["Space"]) velocity.y=0.15;
+}
+
+// MOBILE
+else{
+joyX += (joyTX-joyX)*0.2;
+joyY += (joyTY-joyY)*0.2;
+
+player.position.add(right.clone().multiplyScalar(joyX*0.1));
+player.position.add(forward.clone().multiplyScalar(-joyY*0.1));
+}
+
+// gravity + rigidbody feel
+velocity.y -= 0.01;
+player.position.add(velocity);
+velocity.multiplyScalar(0.85);
+
+if(player.position.y<2){
+player.position.y=2;
+velocity.y=0;
+}
+}
+
+// ---------------- AI ----------------
+function updateAI(){
+for(let e of enemies){
+
+let dir=player.position.clone().sub(e.position);
+let dist=dir.length();
+dir.normalize();
+
+// chase
+if(dist>3){
+e.position.add(dir.multiplyScalar(0.02));
+}
+
+// attack
+if(dist<6){
+document.getElementById("hp").innerText-=1;
+}
+
+e.lookAt(player.position);
+}
+}
+
+// ---------------- LOOK FIX ----------------
+document.addEventListener("mousemove",(e)=>{
+if(document.pointerLockElement===canvas){
+yaw-=e.movementX*sens;
+pitch-=e.movementY*sens;
+
+pitch=Math.max(-1.5,Math.min(1.5,pitch));
+
+player.rotation.y=yaw;
+camera.rotation.x=pitch;
+}
+});
+
+// ---------------- PC INPUT ----------------
+document.addEventListener("keydown",e=>keys[e.code]=true);
+document.addEventListener("keyup",e=>keys[e.code]=false);
+
+// ---------------- CURSOR LOCK FIX ----------------
+function lock(){
+canvas.requestPointerLock();
+}
+
+// ---------------- SHOOT ----------------
+function shoot(){
+for(let e of enemies){
+if(e.position.distanceTo(player.position)<10){
+e.hp-=25;
+if(e.hp<=0) scene.remove(e);
+}
+}
+}
+
+document.addEventListener("mousedown",shoot);
+
+// ---------------- MOBILE JOYSTICK FIX ----------------
+let base=document.getElementById("joyBase");
+let stick=document.getElementById("joyStick");
+
+base.addEventListener("touchmove",e=>{
+let t=e.touches[0];
+let r=base.getBoundingClientRect();
+
+joyTX=(t.clientX-(r.left+60))/40;
+joyTY=(t.clientY-(r.top+60))/40;
+
+joyTX=Math.max(-1,Math.min(1,joyTX));
+joyTY=Math.max(-1,Math.min(1,joyTY));
+
+stick.style.transform=`translate(${joyTX*30}px,${joyTY*30}px)`;
+});
+
+base.addEventListener("touchend",()=>{
+joyTX=joyTY=0;
+stick.style.transform="translate(0,0)";
+});
+
+// MOBILE BUTTONS
+document.getElementById("shootBtn").addEventListener("touchstart",shoot);
+
+document.getElementById("reloadBtn").addEventListener("touchstart",()=>{
+// simple reload placeholder
+});
+
+// ---------------- LOOP ----------------
+function animate(){
+requestAnimationFrame(animate);
+
+move();
+updateAI();
+
+renderer.render(scene,camera);
+}
+
+// ---------------- START ----------------
+function start(){
+document.getElementById("ui").style.display="none";
+
+init();
+
+// FIXED CURSOR LOCK
+canvas.addEventListener("click",lock);
+lock();
+
+if(isMobile){
+document.getElementById("joyBase").style.display="block";
+document.getElementById("shootBtn").style.display="flex";
+document.getElementById("reloadBtn").style.display="flex";
+}
+}
+</script>
+
+</body>
+</html>
